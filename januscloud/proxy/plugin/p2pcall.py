@@ -247,8 +247,6 @@ class P2PCallHandle(FrontendHandleBase):
                 if self.p2pcall_user is None or self.p2pcall_user.incall is False \
                         or self.p2pcall_user.peer_name == '':
                     raise JanusCloudError('Not in call', JANUS_P2PCALL_ERROR_NO_CALL)
-                if jsep is None:
-                    raise JanusCloudError('Missing SDP', JANUS_P2PCALL_ERROR_MISSING_SDP)
 
                 # send the accepted event to the peer
                 call = {
