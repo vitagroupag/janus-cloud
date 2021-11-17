@@ -3,13 +3,17 @@ Changelog
 
 All notable changes to this project will be documented in this file.
 
+ [v0.6.1]  - 2021-11-17
+---------------------------------
+
+* fix: detach correctly calls user DAO removal
+* feat: added unregister event to force unregister and detach
 
  [v0.6.0]  - 2021-09-12
 ---------------------------------
 
 * sentinel exit elegantly by post abnormal status to janus-proxy
 * The APIs of Videoroom, Videocall, P2pcall is compatible with Janus-gateway of v0.11.4
-
 
  [v0.5.0]  - 2021-02-16
 ---------------------------------
