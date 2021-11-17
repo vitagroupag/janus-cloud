@@ -7,6 +7,7 @@ README = open(os.path.join(here, 'README.md')).read()
 CHANGES = open(os.path.join(here, 'CHANGES.md')).read()
 
 requires = [
+    'greenlet==0.4.17',
     'gevent==20.9.0',
     'ws4py==0.5.1',
     'PyYAML==5.4',
