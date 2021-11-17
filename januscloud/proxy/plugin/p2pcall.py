@@ -86,8 +86,10 @@ class P2PCallHandle(FrontendHandleBase):
             return
         super().detach()
 
+        log.debug('detach for p2pcall handle {}, user {}'.format(self.handle_id, self.p2pcall_user))
         if self.p2pcall_user:
-            self._plugin.user_dao.del_by_username(self.p2pcall_user.username)
+            log.debug('detach p2pcall handle {}, removing user {}'.format(self.handle_id, self.p2pcall_user.username))
+            self._plugin.user_dao.remove(self.p2pcall_user)
             self.p2pcall_user.handle = None
             self.p2pcall_user = None
 
@@ -143,6 +145,16 @@ class P2PCallHandle(FrontendHandleBase):
                 self.p2pcall_user = new_p2pcall_user
                 result = {
                     'event': 'registered',
+                    'username': username
+                }
+            elif request == 'unregister':
+                body = username_schema.validate(body)
+                username = body['username']
+                # valid, unregister this new user
+                user = self._plugin.user_dao.get_by_username(username)
+                user.handle.detach()
+                result = {
+                    'event': 'unregistered',
                     'username': username
                 }
             elif request == 'call':
