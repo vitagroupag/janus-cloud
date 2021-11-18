@@ -3,6 +3,11 @@ Changelog
 
 All notable changes to this project will be documented in this file.
 
+ [v0.7.0]  - 2021-11-18
+---------------------------------
+
+* feat: added token-auth based on the Janus token auth to the WS API
+
  [v0.6.1]  - 2021-11-17
 ---------------------------------
 
