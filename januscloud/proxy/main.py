@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 import gevent.monkey
+
 gevent.monkey.patch_all()
 import sys
 from januscloud.proxy.config import load_conf
 from daemon import DaemonContext
-import os
+
 
 def main():
     if len(sys.argv) == 2:
@@ -25,7 +26,6 @@ def main():
 
 
 def do_main(config):
-
     import signal
     from gevent.pywsgi import WSGIServer
     from pyramid.config import Configurator
@@ -65,7 +65,6 @@ def do_main(config):
             raise JanusCloudError('server_db url {} not support'.format(config['general']['server_db']),
                                   JANUS_ERROR_NOT_IMPLEMENTED)
 
-
         # load the core
         from januscloud.proxy.core.frontend_session import FrontendSessionManager
         frontend_session_mgr = FrontendSessionManager(session_timeout=config['general']['session_timeout'])
@@ -75,8 +74,8 @@ def do_main(config):
         backend_server_manager = BackendServerManager(config['general']['server_select'],
                                                       config['janus_server'],
                                                       server_dao)
-        from januscloud.proxy.core.backend_session import set_api_secret
-        set_api_secret(config['general']['api_secret'])
+        from januscloud.proxy.core.backend_session import set_janus_api_secret
+        set_janus_api_secret(config['general']['janus_api_secret'])
 
         # rest api config
         pyramid_config = Configurator()
@@ -85,7 +84,6 @@ def do_main(config):
         # TODO register service to pyramid registry
         pyramid_config.registry.backend_server_manager = backend_server_manager
         pyramid_config.registry.proxy_conf = config
-
 
         # load the plugins
         from januscloud.proxy.core.plugin_base import register_plugin
@@ -96,9 +94,7 @@ def do_main(config):
             plugin = plugin_factory(config, backend_server_manager, pyramid_config)
             register_plugin(plugin.get_package(), plugin)
 
-
         # start admin rest api server
-
 
         # set up all server
         server_list = []

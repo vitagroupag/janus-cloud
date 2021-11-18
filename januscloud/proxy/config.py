@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 
-from januscloud.common.schema import Schema, StrVal, Default, AutoDel, Optional, BoolVal, IntVal, \
-    StrRe, EnumVal, Or
-from januscloud.common.confparser import parse as parse_config
-from pkg_resources import Requirement, resource_filename
-import os
 import logging
+import os
+
+from pkg_resources import resource_filename
+
+from januscloud.common.confparser import parse as parse_config
+from januscloud.common.schema import Schema, StrVal, Default, AutoDel, Optional, BoolVal, IntVal, \
+    StrRe, EnumVal
 
 log = logging.getLogger(__name__)
 
@@ -17,7 +19,8 @@ config_schema = Schema({
         Optional("session_timeout"): Default(IntVal(min=0, max=86400), default=60),
         Optional("server_db"): Default(StrVal(), default='memory'),
         Optional("server_select"): Default(StrVal(), default='rr'),
-        Optional('api_secret'): Default(StrVal(), default=''),
+        Optional('janus_api_secret'): Default(StrVal(), default=''),
+        Optional('proxy_admin_secret'): Default(StrVal(), default=''),
         AutoDel(str): object  # for all other key we don't care
     }, default={}),
     Optional("log"): Default({
@@ -93,4 +96,5 @@ def load_conf(path):
 if __name__ == '__main__':
     conf = config_schema.validate({})
     import pprint
+
     pprint.pprint(conf)

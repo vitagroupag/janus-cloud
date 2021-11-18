@@ -5,13 +5,13 @@ from januscloud.common.utils import error_to_janus_msg, create_janus_msg
 from januscloud.common.error import JanusCloudError, JANUS_ERROR_UNKNOWN_REQUEST, JANUS_ERROR_INVALID_REQUEST_PATH, \
     JANUS_ERROR_PLUGIN_MESSAGE, JANUS_ERROR_HANDLE_NOT_FOUND, JANUS_ERROR_SESSION_NOT_FOUND, \
     JANUS_ERROR_MISSING_MANDATORY_ELEMENT, JANUS_ERROR_INVALID_JSON, JANUS_ERROR_UNAUTHORIZED
-from januscloud.common.schema import Schema, Optional, DoNotCare, \
-    Use, IntVal, Default, SchemaError, BoolVal, StrRe, ListVal, Or, StrVal, \
-    FloatVal, AutoDel
+from januscloud.common.schema import Schema, Optional, DoNotCare, IntVal, StrRe, StrVal, AutoDel
 from januscloud.proxy.core.frontend_handle_base import JANUS_PLUGIN_OK, JANUS_PLUGIN_OK_WAIT
 from januscloud.proxy.core.plugin_base import get_plugin_list
+from januscloud.proxy.dao.mem_token_dao import MemTokenDao
 
 log = logging.getLogger(__name__)
+auth = MemTokenDao()
 
 
 class TransportSession(object):
@@ -91,7 +91,8 @@ class Request(object):
         "transaction": StrRe(r"^\S+$"),
         Optional("session_id"): IntVal(),
         Optional("handle_id"): IntVal(),
-        Optional("apisecret"): StrVal(),
+        Optional("token"): StrVal(),
+        Optional("admin_secret"): StrVal(),
         DoNotCare(str): object  # for all other key we don't care
     })
 
@@ -103,15 +104,18 @@ class Request(object):
         self.transaction = message['transaction']
         self.session_id = message.get('session_id', 0)
         self.handle_id = message.get('handle_id', 0)
-        self.apisecret = message.get('apisecret', '')
+        self.token = message.get('token', None)
+        self.admin_secret = message.get('admin_secret', None)
 
 
 class RequestHandler(object):
 
-    def __init__(self, frontend_session_mgr=None, proxy_conf={}):
+    def __init__(self, frontend_session_mgr=None, proxy_conf=None):
+        if proxy_conf is None:
+            proxy_conf = {}
         self._frontend_session_mgr = frontend_session_mgr
         self._proxy_conf = proxy_conf
-        self._api_secret = proxy_conf.get('general', {}).get('api_secret', '')
+        self._proxy_admin_secret = proxy_conf.get('general', {}).get('proxy_admin_secret', '')
 
     def _get_session(self, request):
         if request.session_id == 0:
@@ -162,8 +166,8 @@ class RequestHandler(object):
 
     def _handle_create(self, request):
         create_params_schema = Schema({
-                Optional('id'): IntVal(min=1, max=9007199254740992),
-                AutoDel(str): object  # for all other key we don't care
+            Optional('id'): IntVal(min=1, max=9007199254740992),
+            AutoDel(str): object  # for all other key we don't care
         })
 
         params = create_params_schema.validate(request.message)
@@ -180,7 +184,7 @@ class RequestHandler(object):
 
     def _handle_keepalive(self, request):
         log.debug('Got a keep-alive on session {0}'.format(request.session_id))
-        session = self._get_session(request)
+        self._get_session(request)
         return create_janus_msg('ack', request.session_id, request.transaction)
 
     def _handle_claim(self, request):
@@ -191,16 +195,16 @@ class RequestHandler(object):
     def _handle_attach(self, request):
         session = self._get_session(request)
         attach_params_schema = Schema({
-                'plugin': StrVal(max_len=64),
-                Optional('opaque_id'): StrVal(max_len=64),
-                AutoDel(str): object  # for all other key we don't care
+            'plugin': StrVal(max_len=64),
+            Optional('opaque_id'): StrVal(max_len=64),
+            AutoDel(str): object  # for all other key we don't care
         })
         params = attach_params_schema.validate(request.message)
         handle = session.attach_handle(**params)
         return create_janus_msg('success', request.session_id, request.transaction, data={'id': handle.handle_id})
 
     def _handle_detach(self, request):
-        self._get_plugin_handle(request) # check handle exist
+        self._get_plugin_handle(request)  # check handle exist
         session = self._get_session(request)
         session.detach_handle(request.handle_id)
         return create_janus_msg('success', request.session_id, request.transaction)
@@ -213,9 +217,9 @@ class RequestHandler(object):
     def _handle_message(self, request):
 
         message_params_schema = Schema({
-                'body': dict,
-                Optional('jsep'): dict,
-                AutoDel(str): object  # for all other key we don't care
+            'body': dict,
+            Optional('jsep'): dict,
+            AutoDel(str): object  # for all other key we don't care
         })
         params = message_params_schema.validate(request.message)
 
@@ -247,9 +251,9 @@ class RequestHandler(object):
     def _handle_trickle(self, request):
 
         trickle_params_schema = Schema({
-                Optional('candidate'): dict,
-                Optional('candidates'): [dict],
-                AutoDel(str): object  # for all other key we don't care
+            Optional('candidate'): dict,
+            Optional('candidates'): [dict],
+            AutoDel(str): object  # for all other key we don't care
         })
         params = trickle_params_schema.validate(request.message)
         candidate = params.get('candidate')
@@ -269,6 +273,14 @@ class RequestHandler(object):
 
         return create_janus_msg('ack', request.session_id, request.transaction)
 
+    def _handle_add_token(self, request):
+        auth.add(request.token)
+        return create_janus_msg('success', request.session_id, request.transaction)
+
+    def _handle_remove_token(self, request):
+        auth.remove(request.token)
+        return create_janus_msg('success', request.session_id, request.transaction)
+
     def incoming_request(self, request):
         """ handle the request from the transport module
 
@@ -279,25 +291,34 @@ class RequestHandler(object):
             a dict to response to the initial client
 
         """
-
         try:
             log.debug('Request ({}) is incoming to handle'.format(request.message))
             handler = getattr(self, '_handle_' + request.janus)
             if handler is None or self._frontend_session_mgr is None:
                 raise JanusCloudError('Unknown request \'{0}\''.format(request.janus), JANUS_ERROR_UNKNOWN_REQUEST)
 
-            # check secret valid
-            if self._api_secret and request.janus not in {'ping', 'info'}:
-                if self._api_secret != request.apisecret:
-                    raise JanusCloudError("Unauthorized request (wrong or missing secret/token)",
-                                          JANUS_ERROR_UNAUTHORIZED)
+            self._authenticate_request(request)
 
             response = handler(request)
             log.debug('Response ({}) is to return'.format(response))
             return response
         except Exception as e:
-            log.warn('Request ({}) processing failed'.format(request.message), exc_info=True)
+            log.warning('Request ({}) processing failed'.format(request.message), exc_info=True)
             return error_to_janus_msg(request.session_id, request.transaction, e)
+
+    def _authenticate_request(self, request):
+        # endpoints w/o auth
+        if request.janus in {'ping', 'info', 'keepalive'}:
+            return
+        # endpoints with adminSecret auth
+        if request.janus in {'add_token', 'remove_token'}:
+            if request.admin_secret != self._proxy_admin_secret:
+                raise JanusCloudError("Unauthorized request (wrong or missing secret/token)", JANUS_ERROR_UNAUTHORIZED)
+            else:
+                return
+        # endpoints with token auth (default):
+        if not auth.valid(request.token):
+            raise JanusCloudError("Unauthorized request (wrong or missing secret/token)", JANUS_ERROR_UNAUTHORIZED)
 
     def transport_gone(self, transport):
         """ notify transport session is closed by the transport module """
@@ -306,19 +327,4 @@ class RequestHandler(object):
 
 
 if __name__ == '__main__':
-    handler = RequestHandler()
-    income_message = {
-        'janus': 'keepalive',
-        'transaction': 'test_1234',
-        'session_id': 12345,
-        'handle_id': 6789
-    }
-    my_request = Request(message=income_message)
-
-    reply = handler.incoming_request(my_request)
-
-    print(reply)
-
-
-
-
+    pass

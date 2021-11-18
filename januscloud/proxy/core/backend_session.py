@@ -1,21 +1,16 @@
 # -*- coding: utf-8 -*-
 import gevent.monkey
+
 gevent.monkey.patch_all()
 import logging
-from januscloud.common.utils import error_to_janus_msg, create_janus_msg, get_monotonic_time, random_uint64
-from januscloud.common.error import JanusCloudError, JANUS_ERROR_SESSION_CONFLICT, \
-    JANUS_ERROR_BAD_GATEWAY, JANUS_ERROR_GATEWAY_TIMEOUT, JANUS_ERROR_SERVICE_UNAVAILABLE
-from januscloud.common.schema import Schema, Optional, DoNotCare, \
-    Use, IntVal, Default, SchemaError, BoolVal, StrRe, ListVal, Or, STRING, \
-    FloatVal, AutoDel
-import time
+from januscloud.common.utils import create_janus_msg, random_uint64
+from januscloud.common.error import JanusCloudError, JANUS_ERROR_BAD_GATEWAY, JANUS_ERROR_GATEWAY_TIMEOUT, JANUS_ERROR_SERVICE_UNAVAILABLE
 import gevent
 from gevent.event import Event
 from januscloud.transport.ws import WSClient
 from januscloud.proxy.core.backend_handle import BackendHandle
 
 log = logging.getLogger(__name__)
-
 
 BACKEND_SESSION_STATE_CREATING = 1
 BACKEND_SESSION_STATE_ACTIVE = 2
@@ -46,7 +41,7 @@ class BackendTransaction(object):
     def response(self, response):
         method = response.get('janus', None)
         if self._ignore_ack and method == 'ack':
-            return   # not consider ack is response
+            return  # not consider ack is response
         self._response = response
         self._response_ready.set()
 
@@ -54,7 +49,7 @@ class BackendTransaction(object):
 class BackendSession(object):
     """ This backend session represents a session of the backend Janus server """
 
-    def __init__(self, url, auto_destroy=False, api_secret=''):
+    def __init__(self, url, auto_destroy=False, janus_api_secret=''):
         self.url = url
         self._ws_client = None
         self._transactions = {}
@@ -65,7 +60,7 @@ class BackendSession(object):
         self._auto_destroy_greenlet = None
         self._keepalive_interval = 10
         self._keepalive_greenlet = None
-        self._api_secret = api_secret
+        self._janus_api_secret = janus_api_secret
         _sessions[url] = self
 
     def init(self):
@@ -104,7 +99,7 @@ class BackendSession(object):
 
         response = self.send_request(attach_request_msg)  # would block for IO
         if response['janus'] == 'success':
-             handle_id = response['data']['id']
+            handle_id = response['data']['id']
         elif response['janus'] == 'error':
             raise JanusCloudError(
                 'attach error for Janus server {} with reason {}'.format(self.url, response['error']['reason']),
@@ -143,8 +138,8 @@ class BackendSession(object):
         send_msg = dict.copy(msg)
         send_msg['session_id'] = self.session_id
         send_msg['transaction'] = transaction_id
-        if self._api_secret:
-            send_msg['apisecret'] = self._api_secret
+        if self._janus_api_secret:
+            send_msg['apisecret'] = self._janus_api_secret
         transaction = BackendTransaction(transaction_id, send_msg, url=self.url, ignore_ack=ignore_ack)
         try:
             self._transactions[transaction_id] = transaction
@@ -188,7 +183,6 @@ class BackendSession(object):
         self._ws_client = None
         self.destroy()
 
-
     def _auto_destroy_routine(self):
         log.info('Backend session {} is auto destroyed'.format(self.session_id))
         self._auto_destroy_greenlet = None
@@ -214,7 +208,8 @@ class BackendSession(object):
                 if handle:
                     handle.on_async_event(msg)
             else:
-                log.warn('Receive a invalid message {} on session {} for server {}'.format(msg, self.session_id, self.url))
+                log.warn(
+                    'Receive a invalid message {} on session {} for server {}'.format(msg, self.session_id, self.url))
         except Exception:
             log.exception('Received a malformat msg {}'.format(msg))
 
@@ -271,7 +266,7 @@ class BackendSession(object):
 
 _sessions = {}
 
-_api_secret = ''
+_janus_api_secret = ''
 
 
 def get_backend_session(server_url, auto_destroy=False):
@@ -279,7 +274,7 @@ def get_backend_session(server_url, auto_destroy=False):
     if session is None:
         # create new session
         session = \
-            BackendSession(server_url, auto_destroy=auto_destroy, api_secret=_api_secret)
+            BackendSession(server_url, auto_destroy=auto_destroy, janus_api_secret=_janus_api_secret)
         try:
             session.init()
         except Exception as e:
@@ -293,16 +288,18 @@ def get_backend_session(server_url, auto_destroy=False):
             gevent.sleep(0.01)
         elif session.state == BACKEND_SESSION_STATE_DESTROYED:
             raise JanusCloudError('Failed to create backend session for Janus server: {}'.format(server_url),
-                                    JANUS_ERROR_BAD_GATEWAY)
+                                  JANUS_ERROR_BAD_GATEWAY)
     return session
 
 
-def set_api_secret(api_secret):
-    global _api_secret
-    _api_secret = api_secret
+def set_janus_api_secret(janus_api_secret):
+    global _janus_api_secret
+    _janus_api_secret = janus_api_secret
+
 
 if __name__ == '__main__':
     from januscloud.common.logger import test_config
+
     test_config(debug=True)
     session = get_backend_session('ws://127.0.0.1:8188', auto_destroy=5)
     print('create session successful')
@@ -313,9 +310,3 @@ if __name__ == '__main__':
     print('destroy session')
     session.destroy()
     gevent.sleep(20)
-
-
-
-
-
-

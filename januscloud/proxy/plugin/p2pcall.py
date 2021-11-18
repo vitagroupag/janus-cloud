@@ -1,28 +1,20 @@
 # -*- coding: utf-8 -*-
-import base64
-import copy
 
-import json
 import logging
-import socket
-
-from januscloud.common.utils import error_to_janus_msg, create_janus_msg, get_host_ip
-from januscloud.common.error import JanusCloudError, JANUS_ERROR_UNKNOWN_REQUEST, JANUS_ERROR_INVALID_REQUEST_PATH, \
-    JANUS_ERROR_BAD_GATEWAY, JANUS_ERROR_CONFLICT, JANUS_ERROR_NOT_IMPLEMENTED, JANUS_ERROR_INTERNAL_ERROR
-from januscloud.common.schema import Schema, Optional, DoNotCare, \
-    Use, IntVal, Default, SchemaError, BoolVal, StrRe, ListVal, Or, STRING, \
-    FloatVal, AutoDel, StrVal
-from januscloud.proxy.core.backend_session import get_backend_session
-from januscloud.proxy.core.plugin_base import PluginBase
-from januscloud.proxy.core.frontend_handle_base import FrontendHandleBase, JANUS_PLUGIN_OK_WAIT
 import os.path
-from januscloud.common.confparser import parse as parse_config
 import time
-import gevent
-from januscloud.proxy.rest.common import post_view, get_params_from_request
-from pyramid.response import Response
-import requests
 
+import requests
+from pyramid.response import Response
+
+from januscloud.common.confparser import parse as parse_config
+from januscloud.common.error import JanusCloudError, JANUS_ERROR_BAD_GATEWAY, JANUS_ERROR_NOT_IMPLEMENTED
+from januscloud.common.schema import Schema, Optional, DoNotCare, \
+    Default, SchemaError, StrRe, AutoDel, StrVal
+from januscloud.common.utils import create_janus_msg, get_host_ip
+from januscloud.proxy.core.frontend_handle_base import FrontendHandleBase, JANUS_PLUGIN_OK_WAIT
+from januscloud.proxy.core.plugin_base import PluginBase
+from januscloud.proxy.rest.common import post_view, get_params_from_request
 
 log = logging.getLogger(__name__)
 
@@ -41,15 +33,14 @@ JANUS_P2PCALL_API_SYNC_VERSION = 'v0.11.4(2021-09-7)'
 JANUS_P2PCALL_VERSION = 6
 JANUS_P2PCALL_VERSION_STRING = '0.0.6'
 JANUS_P2PCALL_DESCRIPTION = 'This is a simple P2P video call plugin for Janus-cloud, ' \
-                                'allow two WebRTC peer communicate with each other in P2P mode. ' \
-                                'Its API is kept sync with videocall of Janus-gateway until ' + \
-                                JANUS_P2PCALL_API_SYNC_VERSION
+                            'allow two WebRTC peer communicate with each other in P2P mode. ' \
+                            'Its API is kept sync with videocall of Janus-gateway until ' + \
+                            JANUS_P2PCALL_API_SYNC_VERSION
 JANUS_P2PCALL_NAME = 'JANUS P2PCall plugin'
 JANUS_P2PCALL_AUTHOR = 'opensight.cn'
 JANUS_P2PCALL_PACKAGE = 'janus.plugin.p2pcall'
 
 JANUS_P2PCALL_API_BASE_PATH = '/plugins/p2pcall'
-
 
 username_schema = Schema({
     'username': StrRe('^\w{1,128}$'),
@@ -101,13 +92,13 @@ class P2PCallHandle(FrontendHandleBase):
 
     def handle_message(self, transaction, body, jsep=None):
         log.debug('handle_message for p2pcall handle {}. transaction:{} body:{} jsep:{}'.
-                 format(self.handle_id, transaction, body, jsep))
+                  format(self.handle_id, transaction, body, jsep))
         self._enqueue_async_message(transaction, body, jsep)
         return JANUS_PLUGIN_OK_WAIT, None
 
     def handle_trickle(self, candidate=None, candidates=None):
         log.debug('handle_trickle for p2pcall handle {}.candidate:{} candidates:{}'.
-                 format(self.handle_id, candidate, candidates))
+                  format(self.handle_id, candidate, candidates))
 
         if candidate:
             if candidates:
@@ -152,7 +143,8 @@ class P2PCallHandle(FrontendHandleBase):
                 username = body['username']
                 # valid, unregister this new user
                 user = self._plugin.user_dao.get_by_username(username)
-                user.handle.detach()
+                if user and user.handle:
+                    user.handle.detach()
                 result = {
                     'event': 'unregistered',
                     'username': username
@@ -188,8 +180,8 @@ class P2PCallHandle(FrontendHandleBase):
                         self.p2pcall_user.peer_name = username
                         self.p2pcall_user.incall = True
                         self.p2pcall_user.utime = time.time()
-                        self._trickle_holding = True    # buffer the trickle candidates util
-                                                        # peer receiving incoming call event
+                        self._trickle_holding = True  # buffer the trickle candidates util
+                        # peer receiving incoming call event
                         # update the user dao
                         self._plugin.user_dao.update(self.p2pcall_user)
 
@@ -318,21 +310,21 @@ class P2PCallHandle(FrontendHandleBase):
         except JanusCloudError as e:
             log.exception('Fail to handle async message ({}) for handle {}'.format(body, self.handle_id))
             self._push_plugin_event({'videocall': 'event',
-                              'error_code': e.code,
-                              'error':str(e),
-                              }, transaction=transaction)
+                                     'error_code': e.code,
+                                     'error': str(e),
+                                     }, transaction=transaction)
         except SchemaError as e:
             log.exception('invalid message format ({}) for handle {}'.format(body, self.handle_id))
             self._push_plugin_event({'videocall': 'event',
-                              'error_code': JANUS_P2PCALL_ERROR_INVALID_ELEMENT,
-                              'error':str(e),
-                              }, transaction=transaction)
+                                     'error_code': JANUS_P2PCALL_ERROR_INVALID_ELEMENT,
+                                     'error': str(e),
+                                     }, transaction=transaction)
         except Exception as e:
             log.exception('Fail to handle async message ({}) for handle {}'.format(body, self.handle_id))
-            self._push_plugin_event({'videocall':'event',
-                              'error_code': JANUS_ERROR_BAD_GATEWAY,
-                              'error':str(e),
-                              }, transaction=transaction)
+            self._push_plugin_event({'videocall': 'event',
+                                     'error_code': JANUS_ERROR_BAD_GATEWAY,
+                                     'error': str(e),
+                                     }, transaction=transaction)
 
     def on_async_event(self, from_user, event_msg):
         if self._has_destroy:
@@ -344,7 +336,7 @@ class P2PCallHandle(FrontendHandleBase):
             event = result.get('event', '')
             if event == 'hangup':
                 if self.p2pcall_user.incall and \
-                  self.p2pcall_user.peer_name == result.get('username', from_user):
+                        self.p2pcall_user.peer_name == result.get('username', from_user):
                     self.p2pcall_user.peer_name = ''
                     self.p2pcall_user.incall = False
                     self.p2pcall_user.utime = time.time()
@@ -359,7 +351,7 @@ class P2PCallHandle(FrontendHandleBase):
 
             elif event == 'accepted':
                 if self.p2pcall_user.incall is False or \
-                  self.p2pcall_user.peer_name != result.get('username', from_user):
+                        self.p2pcall_user.peer_name != result.get('username', from_user):
                     # incomingcall event invalid, ignore it
                     raise JanusCloudError('No incoming call to accept', JANUS_P2PCALL_ERROR_NO_CALL)
 
@@ -380,7 +372,7 @@ class P2PCallHandle(FrontendHandleBase):
                     self._pending_candidates.clear()
             else:
                 if self.p2pcall_user.incall is False:
-                    log.warn('async event {} invalid for handle {}, ignored'.format(event_msg, self.handle_id))
+                    log.warning('async event {} invalid for handle {}, ignored'.format(event_msg, self.handle_id))
                     return
                 pass
 
@@ -421,7 +413,7 @@ class P2PCallHandle(FrontendHandleBase):
         peer = self._plugin.user_dao.get_by_username(to_user)
         if peer is None:
             raise JanusCloudError('Username \'{}\' doesn\'t exist'.format(to_user),
-                                    JANUS_P2PCALL_ERROR_NO_SUCH_USERNAME)
+                                  JANUS_P2PCALL_ERROR_NO_SUCH_USERNAME)
 
         if peer.handle:
             # if dest user is handled by the same proxy, send to him directly
@@ -448,7 +440,7 @@ class P2PCallHandle(FrontendHandleBase):
                 raise JanusCloudError(text, r.status_code)
         else:
             raise JanusCloudError('Username \'{}\' doesn\'t exist'.format(to_user),
-                                    JANUS_P2PCALL_ERROR_NO_SUCH_USERNAME)
+                                  JANUS_P2PCALL_ERROR_NO_SUCH_USERNAME)
 
 
 class P2PCallPlugin(PluginBase):
@@ -465,11 +457,12 @@ class P2PCallPlugin(PluginBase):
         if self.config['general']['user_db'] == 'memory':
             self.user_dao = MemVideoCallUserDao()
         else:
-            raise JanusCloudError('user_db url {} not support by videocall plugin'.format(self.config['general']['user_db']),
-                                  JANUS_ERROR_NOT_IMPLEMENTED)
+            raise JanusCloudError(
+                'user_db url {} not support by videocall plugin'.format(self.config['general']['user_db']),
+                JANUS_ERROR_NOT_IMPLEMENTED)
 
         self.api_base_url = self.get_api_base_url(proxy_config)
-        #print('api_base_url:', self.api_base_url)
+        # print('api_base_url:', self.api_base_url)
 
         includeme(pyramid_config)
         pyramid_config.registry.p2pcall_plugin = self
@@ -501,10 +494,10 @@ class P2PCallPlugin(PluginBase):
         p2pcall_user = self.user_dao.get_by_username(to_user)
         if p2pcall_user is None:
             raise JanusCloudError('Username \'{}\' doesn\'t exist'.format(to_user),
-                                    JANUS_P2PCALL_ERROR_NO_SUCH_USERNAME)
+                                  JANUS_P2PCALL_ERROR_NO_SUCH_USERNAME)
         if p2pcall_user.handle is None:
             raise JanusCloudError('Not support relay http request',
-                                        JANUS_P2PCALL_ERROR_INVALID_REQUEST)
+                                  JANUS_P2PCALL_ERROR_INVALID_REQUEST)
         log.debug('an async event ({}) from \'{}\' to \'{}\' is received by http API'.
                   format(async_event, from_user, to_user))
         p2pcall_user.handle.on_async_event(from_user, async_event)
@@ -520,7 +513,7 @@ class P2PCallPlugin(PluginBase):
             DoNotCare(str): object  # for all other key we don't care
 
         })
-        #print('config file:', config_file)
+        # print('config file:', config_file)
         if config_file is None or config_file == '':
             config = p2pcall_config_schema.validate({})
         else:
@@ -537,13 +530,13 @@ class P2PCallPlugin(PluginBase):
         server_name = proxy_config['general']['server_name'].strip()
         if len(server_name) > 0 and server_name != '127.0.0.1' and 'localhost' not in server_name:
             server_addr = server_name
-#            try:
-#                ip = socket.gethostbyname(server_name)
-#                if ip and ip not in {'127.0.0.1', '0.0.0.0'}:
-#                    server_addr = server_name
-#            except socket.error as e:
-#                # server_name is not a valid host domain name
-#                pass
+        #            try:
+        #                ip = socket.gethostbyname(server_name)
+        #                if ip and ip not in {'127.0.0.1', '0.0.0.0'}:
+        #                    server_addr = server_name
+        #            except socket.error as e:
+        #                # server_name is not a valid host domain name
+        #                pass
         listen_addr, sep, port = proxy_config['admin_api']['http_listen'].strip().partition(':')
         if server_addr is None and listen_addr != '0.0.0.0':
             server_addr = listen_addr.strip()
@@ -568,8 +561,6 @@ post_p2pcall_user_schema = Schema({
 def post_video_user(request):
     params = get_params_from_request(request, post_p2pcall_user_schema)
     username = request.matchdict['username']
-    #print('username:', username)
+    # print('username:', username)
     request.registry.p2pcall_plugin.handle_async_event(to_user=username, **params)
     return Response(status=200)
-
-
